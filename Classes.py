@@ -221,17 +221,29 @@ def empty(df: pd.DataFrame, inplace=True):
     return df.drop(labels=df.index, inplace=inplace)
 
 
-def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
+def clean_header(df: pd.DataFrame):
+    df.columns = range(len(df.columns))
+
+
+def construct_import(joined_df: pd.DataFrame):
+    clean_header(joined_df)
     # first, lets take care of the joined df and duplicate it, depending on how the packaging is organized
     # todo continue here, more doing than thinking!!!
-    # and rename the headers of the joint df to be able to apply this funtion to more than one new item
-    joined_df = joined_df[[significant_column, 2]]
-    joined_df.dropna(subset=[significant_column], inplace=True)
+    # and rename the headers of the joint df to be able to apply this function to more than one new item
+    joined_df = joined_df[[3, 2]]
+    joined_df.dropna(subset=[3], inplace=True)
+    clean_header(joined_df)
+    item_column = 1
+    joined_df[item_column + 1] = joined_df[item_column]
+    if joined_df[1][3]:
+        joined_df[item_column + 2] = joined_df[item_column]
+    else:
+        joined_df.drop(list(range(3, 7)), inplace=True)
     breakpoint()
-    joined_df[3] = joined_df[2]
-    joined_df[4] = joined_df[2]
 
-    breakpoint()
+
+def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
+    construct_import(joined_df)
     # read all sheets from template
     template = pd.read_excel("Excel Templates/BC.xlsx", sheet_name=None)
     for key, value in template.items():
