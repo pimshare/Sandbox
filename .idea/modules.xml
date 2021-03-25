@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/Sandbox.iml" filepath="$PROJECT_DIR$/.idea/Sandbox.iml" />
+      <module fileurl="file://$USER_HOME$/Desktop/ms-identity-python-webapp-master/.idea/ms-identity-python-webapp-master.iml" filepath="$USER_HOME$/Desktop/ms-identity-python-webapp-master/.idea/ms-identity-python-webapp-master.iml" />
+    </modules>
+  </component>
+</project>
