@@ -207,13 +207,40 @@ def read_item_from_google():
 
     # todo where do we go from the joined df? --> BC first
     # transpose the DF and add rows to the Schablone
-    df_to_BC(join_df)
+    df_to_bc(join_df)
     breakpoint()
 
 
-def df_to_BC(joined_df: pd.DataFrame):
+def rename_headers(df: pd.DataFrame, row_idx_where_headers_are: int, inplace=True):
+    df.columns = df.iloc[row_idx_where_headers_are]
+    if inplace:
+        df.drop([i for i in range(row_idx_where_headers_are + 1)])
+
+
+def empty(df: pd.DataFrame, inplace=True):
+    return df.drop(labels=df.index, inplace=inplace)
+
+
+def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
+    # first, lets take care of the joined df and duplicate it, depending on how the packaging is organized
+    # todo continue here, more doing than thinking!!!
+    # and rename the headers of the joint df to be able to apply this funtion to more than one new item
+    joined_df = joined_df[[significant_column, 2]]
+    joined_df.dropna(subset=[significant_column], inplace=True)
+    breakpoint()
+    joined_df[3] = joined_df[2]
+    joined_df[4] = joined_df[2]
 
     breakpoint()
+    # read all sheets from template
+    template = pd.read_excel("Excel Templates/BC.xlsx", sheet_name=None)
+    for key, value in template.items():
+        rename_headers(value, FIRST_ROW_BC - 2)
+        empty(value)
+    keys = list(template.keys())
+    artikel = template[keys[0]]
+    dimension = template[keys[1]]
+    einheiten = template[keys[2]]
 
 
 if __name__ == '__main__':
