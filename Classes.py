@@ -4,6 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 import shelve
 import quickstart_google_sheets_api as google
+import copy
 
 NAME_DB_ITEMS = "items"
 
@@ -198,7 +199,7 @@ def read_excels_from_ba_and_atrify():
 def read_item_from_google():
     # now, let's have a look at the google sheet to ease the pain when putting new items into BC / atrify
     input_df = google.get_df_from_sheet(
-        url=URL_BRAIN, sheet_range="Skizze_v2!A2:C68")
+        url=URL_BRAIN, sheet_range="Skizze_v2!A2:C100")
     input_df.rename(columns={1: 'PIM'}, inplace=True)
     map = google.get_df_from_sheet(url=URL_BRAIN, sheet_range="Field_Map", header=True)
 
@@ -217,6 +218,11 @@ def rename_headers(df: pd.DataFrame, row_idx_where_headers_are: int, inplace=Tru
         df.drop([i for i in range(row_idx_where_headers_are + 1)])
 
 
+def reverse_headers(df: pd.DataFrame):
+    df.loc[len(df)] = list(df.columns)
+    return df
+
+
 def empty(df: pd.DataFrame, inplace=True):
     return df.drop(labels=df.index, inplace=inplace)
 
@@ -225,34 +231,98 @@ def clean_header(df: pd.DataFrame):
     df.columns = range(len(df.columns))
 
 
+def clean_index(df: pd.DataFrame):
+    df.index = range(len(df.index))
+
+
 def construct_import(joined_df: pd.DataFrame):
+    BC_column = 3
+    # let the header be int only
     clean_header(joined_df)
-    # first, lets take care of the joined df and duplicate it, depending on how the packaging is organized
-    # todo continue here, more doing than thinking!!!
-    # and rename the headers of the joint df to be able to apply this function to more than one new item
-    joined_df = joined_df[[3, 2]]
-    joined_df.dropna(subset=[3], inplace=True)
+    # only get the columns for BC
+    joined_df = joined_df[[BC_column, 2]]
+    # drop all lines that are not named as a field in Business Central Column
+    joined_df.dropna(subset=[BC_column], inplace=True)
+    # clean the headers once more
     clean_header(joined_df)
-    item_column = 1
-    joined_df[item_column + 1] = joined_df[item_column]
-    if joined_df[1][3]:
-        joined_df[item_column + 2] = joined_df[item_column]
-    else:
-        joined_df.drop(list(range(3, 7)), inplace=True)
-    breakpoint()
+    clean_index(joined_df)
+
+    # now, we iterate over the rows one, to get some counters for later
+    # per default, we have one SKU
+    how_many_items = 1
+    for i in joined_df.iterrows():
+        # for every Artikeleinheit that is filled, we need a VPE
+        if i[1].get(0) == "Menge pro Einheit" and i[1].get(1) is not None:
+            how_many_items += 1
+        if i[1].get(0) == "Artikelkategoriencode":
+            threshold = i[0]
+
+    # now we know how many items and where the "body" begins, which we need to copy into all items
+    # depending on how many items we need, we loop
+    items = []
+    body = joined_df[:][threshold:]
+    for i in range(how_many_items):
+        if i == 0:
+            items += [joined_df[:][:3].append(body, ignore_index=True)]
+        elif i == 1:
+            vpe = joined_df[:][4 + 4:3 + 4 + 4].append(body, ignore_index=True)
+            vpe[1][len(vpe) - 7] = "VPE"
+            vpe[1][len(vpe) - 8] = "VPE"
+            items += [vpe]
+        else:
+            vpe = joined_df[:][4:3 + 4].append(body, ignore_index=True)
+            vpe[1][len(vpe) - 7] = "VPE"
+            vpe[1][len(vpe) - 8] = "VPE"
+            items += [vpe]
+
+    for i in items:
+        i.set_index(0, drop=True, inplace=True)
+    items = pd.concat(items, axis=1, ignore_index=True).transpose()
+    return items
+
+
+def create_artikel_bc(artikel, items_input, template_backup, key):
+    artikel = artikel.transpose()
+    items_input = items_input.transpose()
+    joiner = artikel.join(items_input, sort=False, how="left", on=artikel.index).transpose()
+    clean_header(joiner)
+    artikel = template_backup[key]
+    clean_header(artikel)
+    artikel = artikel[:][:FIRST_ROW_BC].append(joiner, ignore_index=True)
+    return artikel
 
 
 def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
-    construct_import(joined_df)
+    items_input = construct_import(joined_df)
     # read all sheets from template
-    template = pd.read_excel("Excel Templates/BC.xlsx", sheet_name=None)
+    template = pd.read_excel("Excel Templates/BC_3.xlsx", sheet_name=None, header=None)
+    template_backup = copy.deepcopy(template)
     for key, value in template.items():
-        rename_headers(value, FIRST_ROW_BC - 2)
+        rename_headers(value, FIRST_ROW_BC - 1)
         empty(value)
+        value.append(list(value.columns))
     keys = list(template.keys())
     artikel = template[keys[0]]
     dimension = template[keys[1]]
     einheiten = template[keys[2]]
+    template_backup[keys[0]] = create_artikel_bc(artikel, items_input, template_backup, keys[0])
+
+    # now, we try do do the second table, Dimensions
+
+    dimension = dimension.transpose()
+    values = items_input.transpose()
+    kst = values[~values.index.duplicated(keep='first')]
+    spenden = values[~values.index.duplicated(keep='last')]
+    clean_header(kst)
+    clean_header(spenden)
+    values = pd.concat([kst, spenden], axis=1, join="inner")
+    joiner = dimension.join(values, on=dimension.index).transpose()
+
+    # todo dimensions almost ready, just take a look at the joiner --> remaining to be determined
+
+    # todo items unit of measure
+
+    breakpoint()
 
 
 if __name__ == '__main__':
