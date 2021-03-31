@@ -15,6 +15,10 @@ ATRIFY_SYSTEM_NAME = "atrify"
 # threshold to separate item body and item head for BC items --> Name of first field in body
 BC_SEPARATOR = "Artikelkategoriencode"
 
+# the codes in BC for VPE and STK
+BC_CODE_STK = "STK"
+BC_CODE_VPE = "VPE"
+
 
 def read_df_from_brain(sheet_name: str, sheet_range=None) -> pd.DataFrame:
     """
@@ -89,7 +93,6 @@ def clean_index(df: pd.DataFrame) -> pd.DataFrame:
 def clean_all(df: pd.DataFrame) -> pd.DataFrame:
     """
     Cleans headers and rows according to called methods
-
     """
     df = clean_headers(df)
     df = clean_index(df)
@@ -100,13 +103,97 @@ def index_equals_column_and_drop(df: pd.DataFrame, column_index=0) -> pd.DataFra
     """
     Makes the specified column the index and drops the column
     :param df: Input df
-    :param column_index: Which column (index, not name!) should be the index? If not specified, the first column is used.
+    :param column_index: Which column (number, not name!) should be the index? If not specified, the first column
+    is used.
     :return: rearranged input df
     """
     df.index = df[df.columns[column_index]]
     df = df.drop(labels=df.columns[column_index], axis=1)
     df = clean_headers(df)
     return df
+
+
+def how_many_items(item: pd.Series, attr="GTIN", how_many_char=10) -> int:
+    """
+    This method reads a column (=SKU) and returns how many items have to be created in the system(s). One SKU can be
+    many items (STK, VPE, UVPE).
+    :param item: One item as a series which is one column of a pd.DataFrame
+    :param attr: Name of the attribute which we want to count.
+    :param how_many_char: Threshold on how many characters the attribute needs for the "item" to count as one
+    :return: The Number of items that need to be created.
+    """
+    return len([len(i) for i in list(item.get(attr)) if len(i) > how_many_char])
+
+
+def drop_series(item: pd.Series, char_to_drop) -> pd.Series:
+    """
+    Drops all "rows" = (index, value) from series where the value equals a specific character.
+    :param item: Series or item
+    :param char_to_drop: The specific character
+    :return: the clean series / item
+    """
+    return item[item != char_to_drop]
+
+
+def drop_series_list(item: pd.Series, chars_to_drop=None) -> pd.Series:
+    """
+    This just calls drop_series on the characters specified.
+    :param item: Item that needs to be cleaned.
+    :param chars_to_drop: Specified list of characters that names the values that need dropping.
+    :return: clean item
+    """
+    if chars_to_drop is None:
+        chars_to_drop = ["-", None, "/", ""]
+    for char_to_drop in chars_to_drop:
+        item = drop_series(item, char_to_drop)
+    return item
+
+
+def get_idx_separator(item: pd.Series, name_of_sep=BC_SEPARATOR) -> int:
+    """
+    Get the idx as an Integer for the separator of head and body of an item column.
+    Per Default, the separator is set to be BC_SEPARATOR (for now).
+    :param item: the item column
+    :param name_of_sep: KEY (str) of the corresponding item column that separates the head and the body.
+    :return: returns Idx of separator as an Integer
+    """
+    counter = 0
+    for key in item.index:
+        if key == name_of_sep:
+            return counter
+        else:
+            counter += 1
+
+
+def construct_item_list(item: pd.Series) -> list:
+    """
+    This is where the magic happens (or is supposed to). Takes the single item column from the brain
+    and forms different items from there, depending on the scheme.
+    :param item: the Item column
+    :return: Returns a list of pd.Series that contains all items.
+    """
+    # we count how many items we need -> maybe we don't need the count due to redundancy todo check later
+    count = how_many_items(item)
+    # now we get the separator
+    sep = get_idx_separator(item)
+    # then we get the body
+    body = item.iloc[sep:]
+    # the first item is always added
+    items = [item.iloc[0:3].append(body)]
+    # if there is two items, the second (VPE) also gets a slot
+    if count == 2:
+        items += [item.iloc[3:sep].append(body)]
+    # for three items, the Tray also gets a slot
+    elif count == 3:
+        items += [item.iloc[3:7].append(body)]
+        items += [item.iloc[7:sep].append(body)]
+    # for Business Central, the items all get the corresponding Verkaufs- und Einkaufseinheiten- Codes
+    if count > 1:
+        for i in items[1:]:
+            i["Verkaufseinheitencode"] = BC_CODE_VPE
+            i["Einkaufseinheitencode"] = BC_CODE_VPE
+
+    return items
 
 
 def main():
@@ -126,10 +213,13 @@ def main():
     # ---------------------------------------- (2) go through all items ----------------------------------------
 
     for column in joint:
+        # get the column of the whole item (including tray / vpe if applicable)
         item = joint[column]
-        # todo this is where you need to think: do we go through the lines one by one and fill
-        #  an output df or what's the plan here? and do we do this for bc / atrify or can we already generalize here?
-        # item.get(key) could help here
+        # now we drop every entry that is not specified --> watch out here, that means we are not allowed to leave
+        # anything empty where we don't have the info yet
+        item = drop_series_list(item)
+        items = construct_item_list(item)
+        # todo get the Excel template and join the series one by one
         breakpoint()
 
     breakpoint()
