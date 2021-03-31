@@ -9,6 +9,8 @@ import copy
 NAME_DB_ITEMS = "items"
 
 FIRST_ROW_BC = 3
+# how many fixed fields do we have in BC?
+BC_FIXED = 7
 CODE_VPE = "VPE"
 CODE_STK = "STK"
 db_bc = shelve.open("Database/bc_items")
@@ -209,13 +211,13 @@ def read_item_from_google():
     # todo where do we go from the joined df? --> BC first
     # transpose the DF and add rows to the Schablone
     df_to_bc(join_df)
-    breakpoint()
 
 
 def rename_headers(df: pd.DataFrame, row_idx_where_headers_are: int, inplace=True):
     df.columns = df.iloc[row_idx_where_headers_are]
     if inplace:
         df.drop([i for i in range(row_idx_where_headers_are + 1)])
+    return df
 
 
 def reverse_headers(df: pd.DataFrame):
@@ -266,13 +268,13 @@ def construct_import(joined_df: pd.DataFrame):
             items += [joined_df[:][:3].append(body, ignore_index=True)]
         elif i == 1:
             vpe = joined_df[:][4 + 4:3 + 4 + 4].append(body, ignore_index=True)
-            vpe[1][len(vpe) - 7] = "VPE"
-            vpe[1][len(vpe) - 8] = "VPE"
+            vpe[1][len(vpe) - BC_FIXED] = CODE_VPE
+            vpe[1][len(vpe) - (BC_FIXED + 1)] = CODE_VPE
             items += [vpe]
         else:
             vpe = joined_df[:][4:3 + 4].append(body, ignore_index=True)
-            vpe[1][len(vpe) - 7] = "VPE"
-            vpe[1][len(vpe) - 8] = "VPE"
+            vpe[1][len(vpe) - BC_FIXED] = CODE_VPE
+            vpe[1][len(vpe) - (BC_FIXED + 1)] = CODE_VPE
             items += [vpe]
 
     for i in items:
@@ -281,7 +283,7 @@ def construct_import(joined_df: pd.DataFrame):
     return items
 
 
-def create_artikel_bc(artikel, items_input, template_backup, key):
+def create_artikel_bc(artikel: pd.DataFrame, items_input: pd.DataFrame, template_backup: dict, key: str):
     artikel = artikel.transpose()
     items_input = items_input.transpose()
     joiner = artikel.join(items_input, sort=False, how="left", on=artikel.index).transpose()
@@ -290,6 +292,65 @@ def create_artikel_bc(artikel, items_input, template_backup, key):
     clean_header(artikel)
     artikel = artikel[:][:FIRST_ROW_BC].append(joiner, ignore_index=True)
     return artikel
+
+
+def create_dim_bc(dim: pd.DataFrame, items_input: pd.DataFrame, template_backup: dict, key: str):
+    # now, we try do do the second table, Dimensions
+    dimension = dim.transpose()
+    values = items_input.transpose()
+    kst = values[~values.index.duplicated(keep='first')]
+    spenden = values[~values.index.duplicated(keep='last')]
+    clean_header(kst)
+    clean_header(spenden)
+    values = pd.concat([kst, spenden], axis=1, join="inner")
+    joiner = dimension.join(values, on=dimension.index).transpose()
+    clean_header(joiner)
+    dimension = template_backup[key]
+    clean_header(dimension)
+    dimension = dimension[:][:FIRST_ROW_BC].append(joiner, ignore_index=True)
+    return dimension
+
+
+def create_unit_bc(joined_df: pd.DataFrame, items_input: pd.DataFrame, template_backup: dict, key: str):
+    units = ["1"] + get_val_from_joined(joined_df, "Menge pro Einheit")
+    numbers = get_val_from_joined(joined_df, "Nr.")
+    # if there is a tray, extend
+    units.extend(units)
+    numbers.extend(numbers)
+    codes = [CODE_STK, CODE_VPE]
+    codes.extend(codes)
+    # todo check for trays!
+    # if len(units) == 3:
+    #     units.extend(units)
+    #     units.extend(units[0])
+    #     numbers.extend(numbers[0])
+    numbers.sort()
+    result = pd.DataFrame([numbers, codes, units]).transpose()
+    result.columns = template_backup["Artikeleinheit"].iloc[2][:3]
+    return join_template_values(template_backup["Artikeleinheit"], result, FIRST_ROW_BC - 1)
+
+
+def join_template_values(template: pd.DataFrame, values: pd.DataFrame, header_row_template: int):
+    template_to_join = copy.deepcopy(template)
+    template_to_join = rename_headers(template_to_join, header_row_template)
+    empty(template_to_join)
+    template_to_join = template_to_join.transpose()
+    values = values.transpose()
+    result = template_to_join.join(values, on=template_to_join.index).transpose()
+    clean_header(template)
+    clean_header(result)
+    template = template[:][:FIRST_ROW_BC].append(result, ignore_index=True)
+    return template
+
+
+def get_val_from_joined(joined_df: pd.DataFrame, name_pim: str):
+    # Spalte 3: Bezeichnungen BC
+    # Spalte 2: Wert
+    values = []
+    for idx, val in enumerate(joined_df[3]):
+        if val == name_pim and joined_df[2][idx] is not None:
+            values += [joined_df[2][idx]]
+    return values
 
 
 def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
@@ -306,30 +367,22 @@ def df_to_bc(joined_df: pd.DataFrame, significant_column="BC"):
     dimension = template[keys[1]]
     einheiten = template[keys[2]]
     template_backup[keys[0]] = create_artikel_bc(artikel, items_input, template_backup, keys[0])
+    template_backup[keys[1]] = create_dim_bc(dimension, items_input, template_backup, keys[1])
+    # for the units, we give the joined df as a parameter to get the "unit field"
+    template_backup[keys[2]] = create_unit_bc(joined_df, items_input, template_backup, keys[2])
+    save_xls(template_backup, "Output/Upload.xlsx")
 
-    # now, we try do do the second table, Dimensions
 
-    dimension = dimension.transpose()
-    values = items_input.transpose()
-    kst = values[~values.index.duplicated(keep='first')]
-    spenden = values[~values.index.duplicated(keep='last')]
-    clean_header(kst)
-    clean_header(spenden)
-    values = pd.concat([kst, spenden], axis=1, join="inner")
-    joiner = dimension.join(values, on=dimension.index).transpose()
-
-    # todo dimensions almost ready, just take a look at the joiner --> remaining to be determined
-
-    # todo items unit of measure
-
-    breakpoint()
+def save_xls(dict_df, path):
+    writer = pd.ExcelWriter(path)
+    for key in dict_df:
+        dict_df[key].to_excel(writer, key, header=False, index=False)
+    writer.save()
 
 
 if __name__ == '__main__':
     read_item_from_google()
 
-    # todo get the VPEs and reference them
-    #  from item to item such as Item(STK) --> Item(Tray) --> Item(VPE)
     breakpoint()
     db_bc.close()
     db_a.close()
