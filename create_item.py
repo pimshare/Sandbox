@@ -1,3 +1,5 @@
+import copy
+
 import pandas as pd
 import quickstart_google_sheets_api as google
 
@@ -72,6 +74,7 @@ def make_last_column_first(df: pd.DataFrame) -> pd.DataFrame:
 
 def clean_headers(df: pd.DataFrame) -> pd.DataFrame:
     """
+    Makes the Header of DataFrame be [0,1,2,...,n]
     :param df: input df
     :return: input df with headers/columns = [0,1,2,...,n]
     """
@@ -82,6 +85,7 @@ def clean_headers(df: pd.DataFrame) -> pd.DataFrame:
 
 def clean_index(df: pd.DataFrame) -> pd.DataFrame:
     """
+    Makes the index/rows of DataFrame be [0,1,2,...,n]
     :param df: input df
     :return: input df with index/rows = [0,1,2,...,n]
     """
@@ -107,8 +111,8 @@ def index_equals_column_and_drop(df: pd.DataFrame, column_index=0) -> pd.DataFra
     is used.
     :return: rearranged input df
     """
-    df.index = df[df.columns[column_index]]
-    df = df.drop(labels=df.columns[column_index], axis=1)
+    df = df.drop(labels=range(column_index), axis=1)
+    df.set_index(column_index, inplace=True)
     df = clean_headers(df)
     return df
 
@@ -172,6 +176,11 @@ def construct_item_list(item: pd.Series) -> list:
     :param item: the Item column
     :return: Returns a list of pd.Series that contains all items.
     """
+    # let us first define where the first, second (and third if applicable) items start
+    idx_first = 0
+    # make second and third +1 to exclude the "Menge pro Einheit"
+    idx_second = 3
+    idx_third = 7
     # we count how many items we need -> maybe we don't need the count due to redundancy todo check later
     count = how_many_items(item)
     # now we get the separator
@@ -179,14 +188,14 @@ def construct_item_list(item: pd.Series) -> list:
     # then we get the body
     body = item.iloc[sep:]
     # the first item is always added
-    items = [item.iloc[0:3].append(body)]
+    items = [item.iloc[idx_first:idx_second].append(body)]
     # if there is two items, the second (VPE) also gets a slot
     if count == 2:
-        items += [item.iloc[3:sep].append(body)]
+        items += [item.iloc[idx_second:sep].append(body)]
     # for three items, the Tray also gets a slot
     elif count == 3:
-        items += [item.iloc[3:7].append(body)]
-        items += [item.iloc[7:sep].append(body)]
+        items += [item.iloc[idx_second:idx_third].append(body)]
+        items += [item.iloc[idx_third:sep].append(body)]
     # for Business Central, the items all get the corresponding Verkaufs- und Einkaufseinheiten- Codes
     if count > 1:
         for i in items[1:]:
@@ -206,7 +215,7 @@ def main():
 
     # todo (1) get the excel template
     # todo (2) go through all items
-    # todo (3) append them accordingly to the template
+    # todo (3) append them according to the template
 
     joint = index_equals_column_and_drop(joint)
 
@@ -220,6 +229,13 @@ def main():
         item = drop_series_list(item)
         items = construct_item_list(item)
         # todo get the Excel template and join the series one by one
+        template = pd.read_excel("Excel Templates/BC_3.xlsx", sheet_name=None, header=None)
+        template_v2 = copy.deepcopy(template['Artikel'].T)
+        clean = index_equals_column_and_drop(template_v2, 2)
+        # okay so we have the template cleaned
+        # todo
+        # now we need to (1) get the old values out and (2) drop the new values in
+        # todo write the join algo!
         breakpoint()
 
     breakpoint()
