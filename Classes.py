@@ -195,7 +195,7 @@ def read_excels_from_ba_and_atrify():
     create_or_update_all_items_bc(
         pd.read_excel("Excel Templates/first Sync python.xlsx", sheet_name=None, header=None))
     create_or_update_all_items_atrify(
-        pd.read_excel("atrify Excel Input/PUB_DL_4260556670003_20210323_1616_698.xlsx", sheet_name=None, header=None))
+        pd.read_excel("atrify Excel Input/PUB_DL_4260556670003_20210421_1521_195.xlsx", sheet_name=None, header=None))
 
 
 def read_item_from_google():
@@ -286,6 +286,7 @@ def construct_import(joined_df: pd.DataFrame):
 def create_artikel_bc(artikel: pd.DataFrame, items_input: pd.DataFrame, template_backup: dict, key: str):
     artikel = artikel.transpose()
     items_input = items_input.transpose()
+    # todo this is the way: just debug and see how the join works
     joiner = artikel.join(items_input, sort=False, how="left", on=artikel.index).transpose()
     clean_header(joiner)
     artikel = template_backup[key]
@@ -381,6 +382,7 @@ def save_xls(dict_df, path):
 
 
 if __name__ == '__main__':
+    read_excels_from_ba_and_atrify()
     read_item_from_google()
 
     breakpoint()

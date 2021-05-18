@@ -2,6 +2,7 @@ import copy
 
 import pandas as pd
 import quickstart_google_sheets_api as google
+import collections
 
 # fixed parameters to use or change only here
 
